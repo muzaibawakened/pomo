@@ -605,7 +605,7 @@ function App() {
                    <div className="task-edit-actions"><button type="submit" disabled={isRunning || !taskDraft.trim()}>Save</button><button type="button" disabled={isRunning} onClick={cancelTaskEdit}>Cancel</button></div>
                   </form>
                 ) : (
-                  <button className="active-task-title" onClick={() => startTaskEdit(activeTask)} title="Click to edit this task">{activeTask.title}<Icon name="pencil" className="h-4 w-4" /></button>
+                  <button className="active-task-title" disabled={isRunning} onClick={() => startTaskEdit(activeTask)} title={isRunning ? "Pause to edit this task" : "Click to edit this task"}>{activeTask.title}<Icon name="pencil" className="h-4 w-4" /></button>
                 )}
                 <p className="active-task-subtitle">One task. One tab. One step at a time.</p>
               </>
