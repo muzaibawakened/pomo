@@ -223,7 +223,7 @@ function App() {
     if (!isRunning || deadline === null) return;
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      setSecondsLeft(remaining);
+      setSecondsLeft((current) => current === remaining ? current : remaining);
       if (remaining === 0 && !finishedRef.current) {
         finishedRef.current = true;
         setIsRunning(false);
@@ -232,7 +232,7 @@ function App() {
       }
     };
     tick();
-    const interval = window.setInterval(tick, 250);
+    const interval = window.setInterval(tick, 1000);
     return () => window.clearInterval(interval);
   }, [announceCompletion, deadline, isRunning, mode, profile?.name]);
 
@@ -256,7 +256,11 @@ function App() {
       if (event.code === "Space") {
         event.preventDefault();
         toggleTimer();
-      } else if (event.key.toLowerCase() === "r") {
+        return;
+      }
+      // During a running session, Space is the only active keyboard action.
+      if (isRunning) return;
+      if (event.key.toLowerCase() === "r") {
         resetTimer();
       } else if (event.key.toLowerCase() === "n") {
         skipSession();
@@ -268,17 +272,18 @@ function App() {
   });
 
   const changeMode = (nextMode: Mode) => {
+    if (isRunning) return;
     finishedRef.current = false;
     setMode(nextMode);
     setSecondsLeft(settings.durations[nextMode] * 60);
-    setIsRunning(false);
     setDeadline(null);
     setNotice(null);
   };
 
   const resetTimer = () => {
+    // Reset is intentionally unavailable while a session is running.
+    if (isRunning) return;
     finishedRef.current = false;
-    setIsRunning(false);
     setDeadline(null);
     setSecondsLeft(settings.durations[mode] * 60);
     setNotice(null);
@@ -286,21 +291,39 @@ function App() {
 
   const toggleTimer = () => {
     if (isRunning) {
+      // Calculate from the deadline so pausing never loses or adds time.
       const remaining = deadline === null ? secondsLeft : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setSecondsLeft(remaining);
       setIsRunning(false);
       setDeadline(null);
+      // A click landing on the exact end of a session must complete it, not strand it at 00:00.
+      if (remaining === 0 && !finishedRef.current) {
+        finishedRef.current = true;
+        announceCompletion(mode, profile?.name ?? "friend");
+      }
       return;
+    }
+    // Finish any in-progress edit before locking task controls for focus time.
+    if (editingTaskId) {
+      const clean = taskDraft.trim();
+      if (clean) {
+        setTasks((current) => current.map((task) => task.id === editingTaskId ? { ...task, title: clean.slice(0, 120) } : task));
+      }
+      setEditingTaskId(null);
+      setTaskDraft("");
     }
     const remaining = secondsLeft <= 0 ? settings.durations[mode] * 60 : secondsLeft;
     finishedRef.current = false;
     setSecondsLeft(remaining);
     setDeadline(Date.now() + remaining * 1000);
     setIsRunning(true);
+    setIsSettingsOpen(false);
+    setIsEditingName(false);
     setNotice(null);
   };
 
   const skipSession = () => {
+    if (isRunning) return;
     if (mode === "focus") {
       const longBreakDue = stats.completedSessions > 0 && stats.completedSessions % 4 === 0;
       changeMode(longBreakDue ? "long" : "short");
@@ -319,6 +342,7 @@ function App() {
 
   const saveName = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isRunning) return;
     const cleanName = nameDraft.trim().replace(/\s+/g, " ").slice(0, 28);
     if (cleanName) setProfile({ name: cleanName });
     setIsEditingName(false);
@@ -326,6 +350,7 @@ function App() {
 
   const addTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isRunning) return;
     const title = newTaskTitle.trim();
     if (!title) return;
     const task = { id: makeId(), title: title.slice(0, 120), done: false };
@@ -335,19 +360,28 @@ function App() {
   };
 
   const startTaskEdit = (task: Task) => {
+    if (isRunning) return;
     setEditingTaskId(task.id);
     setTaskDraft(task.title);
   };
 
   const finishTaskEdit = () => {
+    if (isRunning) return;
     if (editingTaskId) {
       const clean = taskDraft.trim();
       if (clean) setTasks((current) => current.map((task) => task.id === editingTaskId ? { ...task, title: clean.slice(0, 120) } : task));
     }
     setEditingTaskId(null);
+    setTaskDraft("");
+  };
+
+  const cancelTaskEdit = () => {
+    setEditingTaskId(null);
+    setTaskDraft("");
   };
 
   const toggleTaskDone = (taskId: string) => {
+    if (isRunning) return;
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return;
     setTasks((current) => current.map((item) => item.id === taskId ? { ...item, done: !item.done } : item));
@@ -359,6 +393,7 @@ function App() {
   };
 
   const deleteTask = (taskId: string) => {
+    if (isRunning) return;
     const next = tasks.find((task) => task.id !== taskId && !task.done);
     setTasks((current) => current.filter((task) => task.id !== taskId));
     if (activeTaskId === taskId) setActiveTaskId(next?.id ?? null);
@@ -366,12 +401,14 @@ function App() {
   };
 
   const updateDuration = (target: Mode, value: number) => {
+    if (isRunning) return;
     const safeValue = Math.min(180, Math.max(1, Math.round(value || 1)));
     setSettings((current) => ({ ...current, durations: { ...current.durations, [target]: safeValue } }));
     if (mode === target && !isRunning) setSecondsLeft(safeValue * 60);
   };
 
   const toggleNotifications = async () => {
+    if (isRunning) return;
     if (settings.notifications) {
       setSettings((current) => ({ ...current, notifications: false }));
       return;
@@ -445,13 +482,13 @@ function App() {
       <header className="app-header">
         <a href="#home" className="wordmark app-wordmark" aria-label="pomo home">pomo<span>.</span></a>
         <div className="header-actions">
-          <button className="profile-pill" onClick={() => { setNameDraft(profile.name); setIsEditingName(true); }} title="Edit your name">
+          <button className="profile-pill" disabled={isRunning} onClick={() => { if (isRunning) return; setNameDraft(profile.name); setIsEditingName(true); }} title={isRunning ? "Pause to edit your name" : "Edit your name"}>
             <span className="profile-presence" />
             <span className="profile-label">Focusing as</span>
             <strong>{profile.name}</strong>
             <Icon name="pencil" className="profile-pencil h-3.5 w-3.5" />
           </button>
-          <button className="icon-button settings-trigger" onClick={() => setIsSettingsOpen(true)} aria-label="Open settings" title="Settings">
+          <button className="icon-button settings-trigger" disabled={isRunning} onClick={() => { if (!isRunning) setIsSettingsOpen(true); }} aria-label="Open settings" title={isRunning ? "Pause to open settings" : "Settings"}>
             <Icon name="settings" className="h-[18px] w-[18px]" />
           </button>
         </div>
@@ -496,6 +533,8 @@ function App() {
                 key={item}
                 role="tab"
                 aria-selected={mode === item}
+                aria-disabled={isRunning}
+                disabled={isRunning}
                 onClick={() => changeMode(item)}
                 className={`mode-option ${mode === item ? "mode-option-active" : ""}`}
               >
@@ -530,13 +569,13 @@ function App() {
           </div>
 
           <div className="timer-controls">
-            <button className="round-control" onClick={resetTimer} aria-label="Reset timer" title="Reset (R)"><Icon name="reset" className="h-[18px] w-[18px]" /></button>
+            <button className="round-control" onClick={resetTimer} disabled={isRunning} aria-label="Reset timer" title={isRunning ? "Pause before resetting" : "Reset (R)"}><Icon name="reset" className="h-[18px] w-[18px]" /></button>
             <button className="primary-control" onClick={toggleTimer}>
               <Icon name={isRunning ? "pause" : "play"} className="h-4 w-4" />
               <span>{isRunning ? "Pause session" : secondsLeft === 0 ? "Start again" : mode === "focus" ? "Start focus" : "Start break"}</span>
               <kbd>{isRunning ? "SPACE" : "↵"}</kbd>
             </button>
-            <button className="round-control" onClick={skipSession} aria-label="Skip session" title="Skip (N)"><Icon name="skip" className="h-[18px] w-[18px]" /></button>
+            <button className="round-control" onClick={skipSession} disabled={isRunning} aria-label="Skip session" title={isRunning ? "Pause before switching sessions" : "Skip (N)"}><Icon name="skip" className="h-[18px] w-[18px]" /></button>
           </div>
           <div className="keyboard-hint"><span className="keyboard-key">SPACE</span> {isRunning ? "to pause" : "to begin"}<span className="hint-divider" /><span className="keyboard-key">R</span> to reset</div>
 
@@ -562,10 +601,11 @@ function App() {
               <>
                 {editingTaskId === activeTask.id ? (
                   <form onSubmit={(event) => { event.preventDefault(); finishTaskEdit(); }} className="active-task-edit-form">
-                    <input autoFocus maxLength={120} value={taskDraft} onChange={(event) => setTaskDraft(event.target.value)} onBlur={finishTaskEdit} aria-label="Edit task title" />
+                    <input autoFocus maxLength={120} value={taskDraft} disabled={isRunning} onChange={(event) => setTaskDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancelTaskEdit(); } }} aria-label="Edit task title" />
+                   <div className="task-edit-actions"><button type="submit" disabled={isRunning || !taskDraft.trim()}>Save</button><button type="button" disabled={isRunning} onClick={cancelTaskEdit}>Cancel</button></div>
                   </form>
                 ) : (
-                  <button className="active-task-title" onClick={() => startTaskEdit(activeTask)} title="Click to edit this task">{activeTask.title}<Icon name="pencil" className="h-4 w-4" /></button>
+                  <button className="active-task-title" disabled={isRunning} onClick={() => startTaskEdit(activeTask)} title={isRunning ? "Pause to edit this task" : "Click to edit this task"}>{activeTask.title}<Icon name="pencil" className="h-4 w-4" /></button>
                 )}
                 <p className="active-task-subtitle">One task. One tab. One step at a time.</p>
               </>
@@ -585,17 +625,18 @@ function App() {
               <div className="task-list">
                 {tasks.map((task) => (
                   <div key={task.id} className={`task-row ${task.done ? "task-row-done" : ""} ${activeTask?.id === task.id ? "task-row-current" : ""}`}>
-                    <button className={`task-check ${task.done ? "task-check-done" : ""}`} onClick={() => toggleTaskDone(task.id)} aria-label={task.done ? `Mark ${task.title} incomplete` : `Complete ${task.title}`}><Icon name="check" className="h-3.5 w-3.5" /></button>
-                    {editingTaskId === task.id ? (
+                    <button className={`task-check ${task.done ? "task-check-done" : ""}`} disabled={isRunning} onClick={() => toggleTaskDone(task.id)} aria-label={task.done ? `Mark ${task.title} incomplete` : `Complete ${task.title}`}><Icon name="check" className="h-3.5 w-3.5" /></button>
+                    {editingTaskId === task.id && activeTask?.id !== task.id ? (
                       <form className="task-edit-form" onSubmit={(event) => { event.preventDefault(); finishTaskEdit(); }}>
-                        <input autoFocus maxLength={120} value={taskDraft} onChange={(event) => setTaskDraft(event.target.value)} onBlur={finishTaskEdit} aria-label="Edit task" />
+                        <input autoFocus maxLength={120} value={taskDraft} disabled={isRunning} onChange={(event) => setTaskDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancelTaskEdit(); } }} aria-label="Edit task" />
+                        <div className="task-edit-actions"><button type="submit" disabled={isRunning || !taskDraft.trim()}>Save</button><button type="button" disabled={isRunning} onClick={cancelTaskEdit}>Cancel</button></div>
                       </form>
                     ) : (
-                      <button className="task-row-title" onClick={() => { if (!task.done) setActiveTaskId(task.id); else startTaskEdit(task); }} title={task.done ? "Click to edit completed task" : "Make this your current task"}>{task.title}</button>
+                      <button className="task-row-title" disabled={isRunning} onClick={() => { if (isRunning) return; if (!task.done) setActiveTaskId(task.id); else startTaskEdit(task); }} title={task.done ? "Click to edit completed task" : "Make this your current task"}>{task.title}</button>
                     )}
                     <div className="task-row-actions">
-                      <button onClick={() => startTaskEdit(task)} aria-label={`Edit ${task.title}`} title="Edit"><Icon name="pencil" className="h-3.5 w-3.5" /></button>
-                      <button onClick={() => deleteTask(task.id)} aria-label={`Delete ${task.title}`} title="Delete"><Icon name="trash" className="h-3.5 w-3.5" /></button>
+                      <button disabled={isRunning} onClick={() => startTaskEdit(task)} aria-label={`Edit ${task.title}`} title="Edit"><Icon name="pencil" className="h-3.5 w-3.5" /></button>
+                      <button disabled={isRunning} onClick={() => deleteTask(task.id)} aria-label={`Delete ${task.title}`} title="Delete"><Icon name="trash" className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -604,10 +645,10 @@ function App() {
               <div className="task-list-empty"><span className="task-empty-line" /><p>Your list starts with one small thing.</p></div>
             )}
             <form className="add-task-form" onSubmit={addTask}>
-              <input value={newTaskTitle} onChange={(event) => setNewTaskTitle(event.target.value)} maxLength={120} placeholder="Add a task for this session…" aria-label="New task title" />
-              <button type="submit" aria-label="Add task" disabled={!newTaskTitle.trim()}><Icon name="plus" className="h-4 w-4" /></button>
+              <input value={newTaskTitle} disabled={isRunning} onChange={(event) => setNewTaskTitle(event.target.value)} maxLength={120} placeholder="Add a task for this session…" aria-label="New task title" />
+              <button type="submit" aria-label="Add task" disabled={isRunning || !newTaskTitle.trim()}><Icon name="plus" className="h-4 w-4" /></button>
             </form>
-            {nextTask && <button className="next-task-link" onClick={() => setActiveTaskId(nextTask.id)}><span>UP NEXT</span><strong>{nextTask.title}</strong><Icon name="arrow" className="h-4 w-4" /></button>}
+            {nextTask && <button className="next-task-link" disabled={isRunning} onClick={() => { if (!isRunning) setActiveTaskId(nextTask.id); }}><span>UP NEXT</span><strong>{nextTask.title}</strong><Icon name="arrow" className="h-4 w-4" /></button>}
           </section>
         </aside>
         <div className="focus-vignette" aria-hidden="true" />
@@ -630,14 +671,14 @@ function App() {
               <div className="settings-section"><div className="settings-section-title"><strong>Session length</strong><span>1–180 minutes</span></div>
                 <div className="duration-settings">
                   {(["focus", "short", "long"] as Mode[]).map((item) => (
-                    <label key={item} className="duration-field"><span>{MODES[item].label}</span><div><input type="number" min={1} max={180} disabled={isRunning && mode === item} value={settings.durations[item]} onChange={(event) => updateDuration(item, Number(event.target.value))} aria-label={`${MODES[item].label} duration in minutes`} /><span>min</span></div></label>
+                    <label key={item} className="duration-field"><span>{MODES[item].label}</span><div><input type="number" min={1} max={180} disabled={isRunning} value={settings.durations[item]} onChange={(event) => updateDuration(item, Number(event.target.value))} aria-label={`${MODES[item].label} duration in minutes`} /><span>min</span></div></label>
                   ))}
                 </div>
                 <p className="settings-footnote">The active timer stays untouched; adjust its length after pausing or resetting.</p>
               </div>
               <div className="settings-section settings-toggles">
-                <div className="setting-toggle-row"><span className="setting-icon"><Icon name="volume" className="h-4 w-4" /></span><div><strong>Gentle completion sound</strong><span>A soft tone when a session ends.</span></div><button className={`toggle-switch ${settings.sound ? "toggle-on" : ""}`} role="switch" aria-checked={settings.sound} onClick={() => setSettings((current) => ({ ...current, sound: !current.sound }))}><span /></button></div>
-                <div className="setting-toggle-row"><span className="setting-icon"><Icon name="bell" className="h-4 w-4" /></span><div><strong>Desktop notifications</strong><span>Get a nudge when a timer finishes.</span></div><button className={`toggle-switch ${settings.notifications ? "toggle-on" : ""}`} role="switch" aria-checked={settings.notifications} onClick={toggleNotifications}><span /></button></div>
+                <div className="setting-toggle-row"><span className="setting-icon"><Icon name="volume" className="h-4 w-4" /></span><div><strong>Gentle completion sound</strong><span>A soft tone when a session ends.</span></div><button className={`toggle-switch ${settings.sound ? "toggle-on" : ""}`} disabled={isRunning} role="switch" aria-checked={settings.sound} onClick={() => { if (!isRunning) setSettings((current) => ({ ...current, sound: !current.sound })); }}><span /></button></div>
+                <div className="setting-toggle-row"><span className="setting-icon"><Icon name="bell" className="h-4 w-4" /></span><div><strong>Desktop notifications</strong><span>Get a nudge when a timer finishes.</span></div><button className={`toggle-switch ${settings.notifications ? "toggle-on" : ""}`} disabled={isRunning} role="switch" aria-checked={settings.notifications} onClick={toggleNotifications}><span /></button></div>
               </div>
               <div className="settings-modal-bottom"><span><span className="privacy-dot" /> Preferences and tasks stay on this device.</span><button onClick={() => setIsSettingsOpen(false)}>Done <Icon name="arrow" className="h-4 w-4" /></button></div>
             </>}
