@@ -434,7 +434,7 @@ function App() {
       : { canvas: "long-canvas", halo: "long-halo", accent: "long-accent" };
 
   return (
-    <main className={`app-shell ${atmosphere.canvas}`}>
+    <main className={`app-shell ${atmosphere.canvas} ${isRunning ? "focus-mode" : ""}`}>
       <div className="paper-grid" aria-hidden="true" />
       <div className="noise" aria-hidden="true" />
       <div className={`ambient-blob ambient-main ${atmosphere.halo}`} aria-hidden="true" />
@@ -610,6 +610,7 @@ function App() {
             {nextTask && <button className="next-task-link" onClick={() => setActiveTaskId(nextTask.id)}><span>UP NEXT</span><strong>{nextTask.title}</strong><Icon name="arrow" className="h-4 w-4" /></button>}
           </section>
         </aside>
+        <div className="focus-vignette" aria-hidden="true" />
       </section>
 
       <footer className="app-footer"><span><span className="footer-dot" /> MADE FOR THE NEXT 25 MINUTES</span><span>One thing at a time, {profile.name}.</span></footer>

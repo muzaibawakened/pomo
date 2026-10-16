@@ -5,6 +5,7 @@ A calm, responsive Pomodoro timer built with React, TypeScript, Tailwind CSS 4, 
 ## What changed
 
 - **First-run welcome:** a quiet, Apple-inspired onboarding screen asks for the user's name, then remembers it locally.
+- **Immersive focus mode:** when the timer starts, the side panels glide outward and recede, the timer ring grows with a gentle lime halo, and a soft neutral vignette lowers the visual noise without hiding tasks or stats. Pausing returns the dashboard to its normal composition; reduced-motion preferences are respected by the global stylesheet.
 - **Timer that survives refresh:** the active session's deadline, selected mode, and remaining time are saved locally, so reopening the app doesn't silently restart a running session.
 - **Useful session behaviour:** focus / short break / long break modes, pause, reset, skip, end-of-session feedback, focus-session counts, and focused minutes for today.
 - **Real task list:** add, rename, select, complete, and delete tasks. The current task is highlighted and the next open task is offered.
