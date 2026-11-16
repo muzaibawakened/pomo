@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { AnalyticsView } from "./AnalyticsView";
@@ -16,6 +17,8 @@ import { HoldToQuit } from "./HoldToQuit";
 import { roast, summary, verdict } from "./analytics.ts";
 import { makeId, type Mode, type SessionRecord, type State, type Task } from "./model.ts";
 import { store } from "./store.ts";
+import { SettingsPanel, ProfileForm, type DurationChange } from "./SettingsPanel";
+import { unlockSound, playCue, playFinish } from "./sound";
 import { usePomo } from "./usePomo";
 
 type Notice = { kind: "focus" | "break" | "info"; title: string; body: string };
@@ -164,33 +167,18 @@ function Icon({
   );
 }
 
-function playCompletionSound() {
-  try {
-    const context = new window.AudioContext();
-    const now = context.currentTime;
-    [660, 880].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.0001, now + index * 0.16);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + index * 0.16 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.16 + 0.22);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now + index * 0.16);
-      oscillator.stop(now + index * 0.16 + 0.24);
-    });
-    window.setTimeout(() => void context.close(), 800);
-  } catch {
-    // Audio may be unavailable or blocked by the browser; the timer still completes normally.
-  }
+function controlClick(event: MouseEvent<HTMLElement>) {
+  const button = event.target instanceof Element && event.target.closest("button:enabled, summary");
+  if (!button || button.hasAttribute("data-own-sound")) return;
+  unlockSound();
+  playCue("tap");
 }
 
 function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const onRecord = useCallback((record: SessionRecord) => {
     if (record.outcome === "quit") {
+      playCue("quit");
       const focus = record.mode === "focus";
       setNotice({
         kind: "info",
@@ -209,7 +197,7 @@ function App() {
       : "Gently bring your attention back when you're ready.";
     setNotice({ kind: focus ? "focus" : "break", title, body });
     const { settings } = store.getSnapshot().data;
-    if (settings.sound) playCompletionSound();
+    playFinish(record, true);
     if (
       settings.notifications &&
       "Notification" in window &&
@@ -260,12 +248,18 @@ function App() {
     [activeTask?.id, tasks],
   );
   const cycleProgress = stats.finished === 0 ? 0 : ((stats.finished - 1) % 4) + 1;
-  const edit = (update: (state: State) => State) => store.edit(timerRevision, update);
+  const latestEdit = useRef<Promise<boolean> | null>(null);
+  const edit = (update: (state: State) => State) => {
+    const pending = store.edit(timerRevision, update);
+    latestEdit.current = pending;
+    return pending;
+  };
   const unlocked = () => {
     const current = store.getSnapshot().data;
     return current.timer.phase !== "running" && current.timerRevision === timerRevision;
   };
-  const closeSettings = () => {
+  const closeSettings = async () => {
+    await latestEdit.current;
     setIsSettingsOpen(false);
     setIsEditingName(false);
   };
@@ -389,9 +383,12 @@ function App() {
     );
   }
   function toggleTaskDone(id: string) {
+    unlockSound();
+    let completed: boolean | undefined;
     void edit((s) => {
       const task = s.tasks.find((t) => t.id === id);
       if (!task) return s;
+      completed = !task.done;
       const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
       const activeTaskId = task.done
         ? id
@@ -399,6 +396,8 @@ function App() {
           ? (tasks.find((t) => !t.done)?.id ?? null)
           : s.activeTaskId;
       return { ...s, tasks, activeTaskId };
+    }).then((accepted) => {
+      if (accepted && completed !== undefined) playCue(completed ? "task" : "tap");
     });
   }
   function deleteTask(id: string) {
@@ -413,15 +412,24 @@ function App() {
     });
     if (editingTaskId === id) cancelTaskEdit();
   }
-  function updateDuration(target: Mode, value: number) {
-    const minutes = Math.min(180, Math.max(1, Math.round(value || 1)));
-    void edit((s) => ({
-      ...s,
-      settings: {
-        ...s.settings,
-        durations: { ...s.settings.durations, [target]: minutes },
+  function updateDuration(mode: Mode, change: DurationChange) {
+    void edit((s) => {
+      const current = s.settings.durations[mode];
+      const next = typeof change === "number" ? change : change(current);
+      if (!Number.isInteger(next) || next < 1 || next > 180 || next === current) return s;
+      return {
+        ...s,
+        settings: { ...s.settings, durations: { ...s.settings.durations, [mode]: next } },
+      };
+    });
+  }
+  function toggleSound(key: "sound" | "interactionSounds") {
+    unlockSound(true);
+    void edit((s) => ({ ...s, settings: { ...s.settings, [key]: !s.settings[key] } })).then(
+      (accepted) => {
+        if (accepted) playCue("tap");
       },
-    }));
+    );
   }
   async function toggleNotifications() {
     if (!unlocked()) return;
@@ -480,7 +488,7 @@ function App() {
   );
   if (!profile) {
     return (
-      <main className="welcome-screen">
+      <main onClickCapture={controlClick} className="welcome-screen">
         {storageMessage}
         <div className="welcome-grain" aria-hidden="true" />
         <div className="welcome-orb welcome-orb-one" aria-hidden="true" />
@@ -535,7 +543,12 @@ function App() {
   }
 
   return (
-    <main className={`app-shell ${mode}-canvas ${isRunning ? "focus-mode" : ""}`}>
+    <main
+      onClickCapture={controlClick}
+      onPointerUpCapture={isRunning ? () => unlockSound() : undefined}
+      onKeyDownCapture={isRunning ? () => unlockSound() : undefined}
+      className={`app-shell ${mode}-canvas ${isRunning ? "focus-mode" : ""}`}
+    >
       <div className="studio-light" aria-hidden="true">
         <div />
       </div>
@@ -662,6 +675,7 @@ function App() {
                 aria-selected={mode === item}
                 aria-disabled={isRunning}
                 disabled={isRunning}
+                data-own-sound
                 onClick={() => changeMode(item)}
                 className={`mode-option ${mode === item ? "mode-option-active" : ""}`}
               >
@@ -690,6 +704,7 @@ function App() {
             {!isRunning && (
               <button
                 className="round-control"
+                data-own-sound
                 onClick={resetTimer}
                 aria-label="Reset timer"
                 title="Reset (R)"
@@ -697,7 +712,7 @@ function App() {
                 <Icon name="reset" className="h-[18px] w-[18px]" />
               </button>
             )}
-            <button className="primary-control" onClick={toggleTimer}>
+            <button className="primary-control" data-own-sound onClick={toggleTimer}>
               <Icon name={isRunning ? "pause" : "play"} className="h-4 w-4" />
               <span>
                 {isRunning
@@ -732,6 +747,7 @@ function App() {
             {!isRunning && (
               <button
                 className="round-control"
+                data-own-sound
                 onClick={skipSession}
                 aria-label="Skip session"
                 title="Skip (N)"
@@ -766,7 +782,7 @@ function App() {
             </div>
           )}
           {timer.phase === "completed" && (
-            <button className="next-session-button" onClick={skipSession}>
+            <button className="next-session-button" data-own-sound onClick={skipSession}>
               {mode === "focus" ? "Take a break" : "Back to focus"}
               <Icon name="arrow" className="h-4 w-4" />
             </button>
@@ -859,6 +875,7 @@ function App() {
                     <button
                       className={`task-check ${task.done ? "task-check-done" : ""}`}
                       disabled={isRunning}
+                      data-own-sound
                       onClick={() => toggleTaskDone(task.id)}
                       aria-label={
                         task.done ? `Mark ${task.title} incomplete` : `Complete ${task.title}`
@@ -986,134 +1003,40 @@ function App() {
           </button>
         </Dialog>
       )}
-      {!isRunning && (isSettingsOpen || isEditingName) && (
-        <Dialog titleId="settings-title" onClose={closeSettings}>
+      {!isRunning && isSettingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          paused={timer.phase === "paused"}
+          onDuration={updateDuration}
+          onSound={toggleSound}
+          onVolume={(volume) => void edit((s) => ({ ...s, settings: { ...s.settings, volume } }))}
+          onNotifications={() => void toggleNotifications()}
+          notificationMessage={notice?.title.startsWith("Notifications") ? notice.body : ""}
+          onClose={closeSettings}
+        >
+          <ProfileForm
+            value={nameDraft}
+            saved={profile.name}
+            onChange={setNameDraft}
+            onSubmit={saveName}
+          />
+        </SettingsPanel>
+      )}
+      {!isRunning && isEditingName && !isSettingsOpen && (
+        <Dialog titleId="profile-title" onClose={closeSettings}>
           <div className="settings-modal-header">
-            <div>
-              <span className="settings-kicker">YOUR SPACE</span>
-              <h2 id="settings-title">
-                {isEditingName && !isSettingsOpen ? "Edit your name" : "Settings"}
-              </h2>
-            </div>
-            <button
-              className="icon-button modal-close"
-              onClick={() => {
-                setIsSettingsOpen(false);
-                setIsEditingName(false);
-              }}
-              aria-label="Close settings"
-            >
-              <Icon name="close" className="h-5 w-5" />
+            <h2 id="profile-title">Edit your name</h2>
+            <button className="icon-button" onClick={closeSettings} aria-label="Close profile">
+              <Icon name="close" />
             </button>
           </div>
-          {isSettingsOpen && !isEditingName && (
-            <button className="edit-profile-setting" onClick={() => setIsEditingName(true)}>
-              Edit profile name <strong>{profile.name}</strong>
-            </button>
-          )}
-          {isEditingName && (
-            <form className="name-settings-row" onSubmit={saveName}>
-              <div>
-                <strong>Your name</strong>
-                <span>We'll use it to make this space feel personal.</span>
-              </div>
-              <input
-                autoFocus
-                value={nameDraft}
-                maxLength={28}
-                onChange={(event) => setNameDraft(event.target.value)}
-                aria-label="Your name"
-              />
-              <button className="small-save-button" type="submit">
-                Save
-              </button>
-            </form>
-          )}
-          {isSettingsOpen && (
-            <>
-              <div className="settings-section">
-                <div className="settings-section-title">
-                  <strong>Session length</strong>
-                  <span>1–180 minutes</span>
-                </div>
-                <div className="duration-settings">
-                  {(["focus", "short", "long"] as Mode[]).map((item) => (
-                    <label key={item} className="duration-field">
-                      <span>{MODES[item].label}</span>
-                      <div>
-                        <input
-                          type="number"
-                          min={1}
-                          max={180}
-                          disabled={isRunning}
-                          value={settings.durations[item]}
-                          onChange={(event) => updateDuration(item, Number(event.target.value))}
-                          aria-label={`${MODES[item].label} duration in minutes`}
-                        />
-                        <span>min</span>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                <p className="settings-footnote">
-                  New lengths apply to the next session. Reset a paused timer to use its new length.
-                </p>
-              </div>
-              <div className="settings-section settings-toggles">
-                <div className="setting-toggle-row">
-                  <span className="setting-icon">
-                    <Icon name="volume" className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <strong>Gentle completion sound</strong>
-                    <span>A soft tone when a session ends.</span>
-                  </div>
-                  <button
-                    className={`toggle-switch ${settings.sound ? "toggle-on" : ""}`}
-                    disabled={isRunning}
-                    role="switch"
-                    aria-label="Gentle completion sound"
-                    aria-checked={settings.sound}
-                    onClick={() => {
-                      void edit((s) => ({
-                        ...s,
-                        settings: { ...s.settings, sound: !s.settings.sound },
-                      }));
-                    }}
-                  >
-                    <span />
-                  </button>
-                </div>
-                <div className="setting-toggle-row">
-                  <span className="setting-icon">
-                    <Icon name="bell" className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <strong>Desktop notifications</strong>
-                    <span>Get a nudge when a timer finishes.</span>
-                  </div>
-                  <button
-                    className={`toggle-switch ${settings.notifications ? "toggle-on" : ""}`}
-                    disabled={isRunning}
-                    role="switch"
-                    aria-label="Desktop notifications"
-                    aria-checked={settings.notifications}
-                    onClick={toggleNotifications}
-                  >
-                    <span />
-                  </button>
-                </div>
-              </div>
-              <div className="settings-modal-bottom">
-                <span>
-                  <span className="privacy-dot" /> Preferences and tasks stay on this device.
-                </span>
-                <button onClick={() => setIsSettingsOpen(false)}>
-                  Done <Icon name="arrow" className="h-4 w-4" />
-                </button>
-              </div>
-            </>
-          )}
+          <ProfileForm
+            value={nameDraft}
+            saved={profile.name}
+            onChange={setNameDraft}
+            onSubmit={saveName}
+            autoFocus
+          />
         </Dialog>
       )}
     </main>

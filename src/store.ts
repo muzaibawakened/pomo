@@ -5,7 +5,7 @@ import { decode, migrate, STORAGE_KEY } from "./storage.ts";
 import { transition, type TimerAction } from "./timer.ts";
 
 type Snapshot = { data: State; warning: string };
-type Result = { record?: SessionRecord; showVerdict?: boolean };
+type Result = { changed?: boolean; record?: SessionRecord; showVerdict?: boolean };
 type Lock = <T>(job: () => T) => Promise<T>;
 const volatile =
   "Changes are in memory only. Keep this tab open, allow site storage or free up space, then retry.";
@@ -140,7 +140,7 @@ export function createStore(access: () => Storage, lock: Lock) {
           next.history.length > s.history.length
             ? next.history[next.history.length - 1]
             : undefined;
-        return [next, { record }];
+        return [next, { record, changed: next !== s }];
       });
     },
     edit(revision: number, update: (current: State) => State) {

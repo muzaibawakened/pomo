@@ -3,12 +3,16 @@ export const modes: Mode[] = ["focus", "short", "long"];
 export type Task = { id: string; title: string; done: boolean };
 export type Settings = {
   durations: Record<Mode, number>;
-  sound: boolean;
+  sound: boolean; // Completion chime, including V2/V3 preferences.
+  interactionSounds: boolean;
+  volume: number;
   notifications: boolean;
 };
 export const defaults: Settings = {
   durations: { focus: 25, short: 5, long: 15 },
   sound: true,
+  interactionSounds: true,
+  volume: 65,
   notifications: false,
 };
 export type Outcome = "completed" | "quit" | "reset" | "skipped" | "discarded";

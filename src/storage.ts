@@ -32,6 +32,9 @@ function settingsOf(value: unknown): Settings {
   return {
     durations,
     sound: typeof s.sound === "boolean" ? s.sound : defaults.sound,
+    interactionSounds:
+      typeof s.interactionSounds === "boolean" ? s.interactionSounds : s.sound !== false,
+    volume: integer(s.volume, 100) ? s.volume : defaults.volume,
     notifications: typeof s.notifications === "boolean" ? s.notifications : defaults.notifications,
   };
 }
