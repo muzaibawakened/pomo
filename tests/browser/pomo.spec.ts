@@ -306,3 +306,54 @@ test("first installed PWA reopens offline and recovers the paused timer", async 
   await expect(page.getByRole("button", { name: "Resume session" })).toBeVisible();
   expect((await snapshot(page)).timer).toEqual(paused);
 });
+
+test("compact running view enlarges the dial, keeps the selected task and restores the dashboard", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByLabel("New task title").fill("Review the prototype");
+  await page.getByRole("button", { name: "Add task", exact: true }).click();
+  await page.getByRole("button", { name: /Today’s rhythm/ }).click();
+  const primary = page.locator(".primary-control");
+  const dial = page.locator(".timer-orb");
+  const digits = page.locator(".timer-minutes");
+  for (const [width, height] of [
+    [320, 568],
+    [390, 844],
+    [844, 390],
+    [768, 1024],
+    [1024, 1366],
+  ]) {
+    await page.setViewportSize({ width, height });
+    const ready = await dial.boundingBox();
+    const readyDigits = await digits.boundingBox();
+    await primary.focus();
+    await page.keyboard.press("Space");
+    await expect(primary).toHaveText(/Pause session/);
+    await expect(primary).toBeFocused();
+    await expect(page.locator(".mode-switch")).toBeHidden();
+    await expect(page.locator(".tasks-column")).toBeHidden();
+    await expect(page.locator(".stats-column")).toBeHidden();
+    await expect(page.locator(".session-task")).toHaveText("Review the prototype");
+    const running = (await dial.boundingBox())!;
+    expect(running.width).toBeGreaterThan(ready!.width);
+    expect(Math.abs(running.width - running.height)).toBeLessThan(1);
+    expect((await digits.boundingBox())!.height).toBeGreaterThan(readyDigits!.height);
+    const pause = (await primary.boundingBox())!;
+    expect(pause.y + pause.height).toBeLessThanOrEqual(height);
+    await page.keyboard.press("Space");
+    await expect(primary).toHaveText(/Resume session/);
+    await expect(page.locator(".tasks-column")).toBeVisible();
+    await expect(page.locator(".mode-switch")).toBeVisible();
+  }
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(page.getByRole("button", { name: /Today’s rhythm/ })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await page.getByRole("tab", { name: /Quick reset/ }).click();
+  await primary.click();
+  await expect(hold(page)).toBeVisible();
+  await expect(page.locator(".session-task")).toBeHidden();
+  await expect(page.locator(".mode-switch")).toBeHidden();
+});

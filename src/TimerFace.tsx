@@ -47,7 +47,6 @@ export function TimerFace({
   const secondsLeft = useSyncExternalStore(subscribeClock, readSeconds);
 
   const mode = timer.mode;
-  const isRunning = timer.phase === "running";
   const progress = Math.max(0, 1 - secondsLeft / totalSeconds);
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const seconds = String(secondsLeft % 60).padStart(2, "0");
@@ -66,9 +65,7 @@ export function TimerFace({
 
   return (
     <div className="ring-stage">
-      {" "}
-      <div className={`timer-orb timer-orb-${mode} ${isRunning ? "timer-orb-running" : ""}`}>
-        <div className="orb-hairline" aria-hidden="true" />
+      <div className={`timer-orb timer-orb-${mode}`}>
         <svg className="timer-ring" viewBox="0 0 300 300" aria-hidden="true">
           <circle
             className="timer-ring-track"
@@ -91,31 +88,21 @@ export function TimerFace({
           />
         </svg>
         <div className="timer-content" key={mode}>
-          <div className="session-state">
-            <span
-              className={`state-glyph state-glyph-${mode} ${isRunning ? "state-glyph-live" : ""}`}
-            >
-              <span />
-            </span>
-            <span className="state-copy">
-              <span className="state-overline">{label}</span>
-              <strong>{sessionStatus}</strong>
-            </span>
-          </div>
+          <p className="dial-status">
+            <strong>{label}</strong>
+            <span aria-hidden="true">·</span>
+            {sessionStatus}
+          </p>
           <div
             className="timer-digits"
+            role="timer"
             aria-live="off"
             aria-label={`${minutes} minutes and ${seconds} seconds remaining`}
           >
-            <span className="timer-minutes">{minutes}</span>
-            <span className="timer-seconds-wrap">
-              <span className="timer-seconds">{seconds}</span>
-              <span className="seconds-label">SEC</span>
+            <span className="timer-minutes" data-wide={minutes.length > 2}>
+              {minutes}
             </span>
-          </div>
-          <div className="timer-message">
-            <span className="message-rule" />
-            {totalSeconds / 60}-minute session
+            <span className="timer-seconds">{seconds}</span>
           </div>
         </div>
       </div>

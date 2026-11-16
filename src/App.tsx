@@ -535,6 +535,9 @@ function App() {
 
   return (
     <main className={`app-shell ${mode}-canvas ${isRunning ? "focus-mode" : ""}`}>
+      <div className="studio-light" aria-hidden="true">
+        <div />
+      </div>
       <div className="paper-grid" aria-hidden="true" />
 
       {storageMessage}
@@ -676,6 +679,11 @@ function App() {
             send={send}
             label={MODES[mode].label}
           />
+          {activeTask && mode === "focus" && (
+            <p className="session-task" title={activeTask.title}>
+              {activeTask.title}
+            </p>
+          )}
           <div className="timer-controls">
             {isRunning ? (
               <HoldToQuit
