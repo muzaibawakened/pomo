@@ -1,44 +1,57 @@
 # pomo. — Make room for focus
 
-A calm, responsive Pomodoro timer built with React, TypeScript, Tailwind CSS 4, and Vite.
+A local-first Pomodoro timer built with React, TypeScript, Tailwind CSS and Vite. The dashboard includes onboarding, editable tasks, daily progress, timer preferences, optional sound and desktop notifications. The installable PWA caches its shell for offline use.
 
-## What changed
+## Run and verify
 
-- **First-run welcome:** a quiet, Apple-inspired onboarding screen asks for the user's name, then remembers it locally.
-- **Immersive focus mode:** when the timer starts, the side panels glide outward and recede, the timer ring grows with a gentle lime halo, and a soft neutral vignette lowers the visual noise without hiding tasks or stats. Pausing returns the dashboard to its normal composition; reduced-motion preferences are respected by the global stylesheet.
-- **Timer that survives refresh:** the active session's deadline, selected mode, and remaining time are saved locally, so reopening the app doesn't silently restart a running session.
-- **Useful session behaviour:** focus / short break / long break modes, pause, reset, skip, end-of-session feedback, focus-session counts, and focused minutes for today.
-- **Real task list:** add, rename, select, complete, and delete tasks. The current task is highlighted and the next open task is offered.
-- **Settings:** configure each session length, enable a gentle completion chime, and request desktop notifications.
-- **Persistence:** name, settings, tasks, active task, daily stats, and timer state live in browser `localStorage`. No account or backend is required.
-- **PWA basics:** manifest, install icons, service-worker registration, and cache-first shell support for repeat/offline visits after the app has loaded once.
-- **Responsive and accessible details:** keyboard shortcuts, focus-visible styles, labels for icon controls, reduced-motion support, and mobile layouts.
+Use Node 22.18+ or Node 24 and install the locked dependencies.
 
-## Run locally
-
-```bash
-npm install
+```sh
+npm ci
 npm run dev
 ```
 
-Create a production build with:
-
-```bash
+```sh
+npm run typecheck
+npm test
 npm run build
-npm run preview
+npx playwright install chromium
+npm run test:browser
 ```
 
-## Keyboard shortcuts
+Playwright runs the production preview locally. Set `POMO_BROWSER_CHANNEL` to `chrome` or `msedge` to run against an installed desktop browser. The unit tests use Node’s built-in runner.
 
-- `Space` — start / pause the timer
-- `R` — reset the current session
-- `N` — skip to the next session
-- `Escape` — close settings or the name editor
+## Timer and controls
 
-Shortcuts are ignored while typing in fields or while a modal is open.
+- Focus, Short Break and Long Break default to 25, 5 and 15 minutes. Skip from Focus suggests a long break after every fourth finish that day. Sessions start manually.
+- Space starts, pauses or resumes. Buttons retain native keyboard activation. Editors and dialogs own their keyboard input. R resets and N skips while ready, completed or paused.
+- A running timer locks mode, reset, skip, task, profile and preference changes. Pause retains the session ID, original plan and exact milliseconds remaining. Duration changes apply to the next fresh session.
+- To deliberately quit, hold the left timer button continuously for 1.8 seconds. With keyboard focus on that button, hold Space or Enter. Release early, move the pointer outside, lose focus or switch tabs to cancel. The countdown also cancels when it cannot verify frame continuity.
+- The timer uses a wall-clock deadline so suspension and reopening count toward the active segment. A forward clock jump can finish it early. A backward jump can delay it, with remaining time capped at the amount available at the start of the current segment.
 
-## Applying this to the existing Figma Make project
+## Storage and recovery
 
-For the existing Make project, the safest first step is to replace the contents of **`src/App.tsx`** and **`src/index.css`** with the versions in this package. Keep Figma Make's own `vite.config.ts` and project shell; its managed config differs from this package's plain local Vite config. The optional PWA files are `public/manifest.webmanifest`, `public/sw.js`, and `public/icons/`; `src/main.tsx` contains the service-worker registration for a standalone production build.
+`pomo.state.v3` holds the profile, preferences, tasks, selected task, current timer, timer revision, terminal session records, an optional V2 daily aggregate and the last claimed verdict week. A terminal transition appends one ID-keyed record and closes the timer in a single localStorage write. Reopening after expiry credits the deadline. Stale actions carry an earlier timer revision and are ignored.
 
-The app has no database or external API requirement. Google Fonts are optional: the CSS includes system-font fallbacks.
+On secure origins, Web Locks serialize actions across supported browser tabs. Each transaction reads the latest snapshot before checking the revision. Older environments without Web Locks should use a single tab. If saving fails, the current tab keeps working in memory. Retry save writes those changes if the stored baseline is still safe to replace.
+
+Migration reads the original V2 keys and leaves them intact. A saved V2 daily total remains one dated aggregate. A recovered V2 countdown receives an ID and keeps an unknown start timestamp. A stopped V2 timer showing its full duration is indistinguishable from ready. A stopped zero display is restored as completed without generating another event.
+
+## Analytics
+
+Analytics opens beside Settings. Totals use the **local end date** of each session. For a recovered completion this is the deadline, interpreted in the device’s time zone at reconciliation. Captured day and clock labels stay fixed if the user later travels. Weeks run Monday through Sunday.
+
+| Outcome | Focus time | Finished | Focus quits |
+| --- | --- | --- | --- |
+| Completed Focus | Full planned duration | 1 | 0 |
+| Hold-to-quit Focus | Active elapsed duration | 0 | 1 |
+| Paused and resumed | Accrues within the same session | 0 until completion | 0 |
+| Reset, skip or mode change from pause | Excluded | 0 | 0 |
+| Break session | Excluded | 0 | 0 |
+| V2 daily summary | Explicit recorded minutes | Explicit finishes | No historical quit data |
+
+Analytics sums milliseconds before formatting minutes. Each green day requires a recorded Focus finish. The daily quit log uses the stored local time and adds “Again.” from the second Focus quit onward. Historical entries remain available to weekly and lifetime calculations.
+
+Roast selection uses active elapsed time including the confirmed hold. Below 2 minutes is instant surrender, then below 10 minutes is early escape. At 10 minutes and above, less than 80% is mid-session and the rest is almost-made-it. The session ID chooses a stable line. Break quits receive neutral feedback.
+
+A first-time user starts with the current week as their baseline. On the first visit in a later week, the app claims that week’s verdict before displaying it. A valid older V2 date can establish the earlier baseline. The previous Monday–Sunday summary remains available in Analytics after dismissal or refresh. An empty week shows an insufficient-data message.
