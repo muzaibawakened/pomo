@@ -1,7 +1,22 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { createHold, HOLD_MS, holdKey } from "./hold.ts";
 
-export function HoldToQuit({ onQuit, getPrompt }: { onQuit: () => void; getPrompt: () => string }) {
+export function HoldToQuit({
+  onQuit,
+  getPrompt,
+  readoutHost,
+}: {
+  readoutHost: RefObject<HTMLDivElement | null>;
+  onQuit: () => void;
+  getPrompt: () => string;
+}) {
   const [progress, setProgress] = useState<number | null>(null);
   const [status, setStatus] = useState("");
   const machine = useRef(createHold());
@@ -79,7 +94,7 @@ export function HoldToQuit({ onQuit, getPrompt }: { onQuit: () => void; getPromp
       <button
         ref={button}
         type="button"
-        className="round-control quit-control"
+        className="quit-control"
         aria-label="Hold to quit for 1.8 seconds"
         aria-pressed={progress !== null}
         onPointerDown={(e) => {
@@ -125,19 +140,45 @@ export function HoldToQuit({ onQuit, getPrompt }: { onQuit: () => void; getPromp
           }
         }}
       >
-        {progress === null ? (
-          <>
-            Hold to
-            <br />
-            quit
-          </>
-        ) : (
-          `${(((1 - progress) * HOLD_MS) / 1000).toFixed(1)}s`
-        )}
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect
+            x="3"
+            y="3"
+            width="10"
+            height="10"
+            rx="2.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+        </svg>
+        Hold to quit
       </button>
-      <span role="status" className={progress === null ? "sr-only" : "hold-feedback"}>
+      <span role="status" className="sr-only">
         {status}
       </span>
+      {progress !== null &&
+        readoutHost.current &&
+        createPortal(
+          <div className="quit-readout">
+            <span className="quit-instruction">Release to cancel</span>
+            <strong className="quit-remaining">
+              {(((1 - progress) * HOLD_MS) / 1000).toFixed(1)}
+              <small>s</small>
+            </strong>
+            <div
+              role="progressbar"
+              aria-label="Hold to quit"
+              aria-valuenow={Math.round(progress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="quit-track"
+            >
+              <span style={{ transform: `scaleX(${progress})` }} />
+            </div>
+            <p>{status}</p>
+          </div>,
+          readoutHost.current,
+        )}
     </>
   );
 }

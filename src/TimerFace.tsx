@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore, type RefObject } from "react";
 import type { Timer } from "./model";
 import { remaining, type TimerAction } from "./timer";
 
 export function TimerFace({
+  readoutHost,
   timer,
   totalSeconds,
   send,
   label,
 }: {
+  readoutHost: RefObject<HTMLDivElement | null>;
   timer: Timer;
   totalSeconds: number;
   send: (action: TimerAction) => Promise<void>;
@@ -87,6 +89,7 @@ export function TimerFace({
             strokeDashoffset={2 * Math.PI * 135 * (1 - progress)}
           />
         </svg>
+        <div className="dial-readout-host" ref={readoutHost} />
         <div className="timer-content" key={mode}>
           <p className="dial-status">
             <strong>{label}</strong>

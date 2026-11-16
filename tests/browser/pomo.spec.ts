@@ -197,6 +197,15 @@ test("touch can quit a break without a Focus accountability entry", async ({ bro
       type: "touchStart",
       touchPoints: [{ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }],
     });
+    const progress = page.getByRole("progressbar", { name: "Hold to quit" });
+    await expect(progress).toBeVisible();
+    await expect(page.getByText("Release to cancel", { exact: true })).toBeVisible();
+    await expect(hold(page)).toHaveText("Hold to quit");
+    const countdown = (await page.locator(".quit-remaining").boundingBox())!;
+    const track = (await progress.boundingBox())!;
+    expect(countdown.y).toBeGreaterThanOrEqual(0);
+    expect(countdown.y + countdown.height).toBeLessThan(rect.y - 44);
+    expect(track.y + track.height).toBeLessThan(rect.y - 44);
     await expect(page.getByText("Break ended", { exact: true })).toBeVisible();
     await cdp.send("Input.dispatchTouchEvent", {
       type: "touchEnd",

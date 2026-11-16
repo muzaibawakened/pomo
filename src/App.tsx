@@ -235,6 +235,7 @@ function App() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [taskDraft, setTaskDraft] = useState("");
+  const readoutHost = useRef<HTMLDivElement>(null);
   const onboardingInputRef = useRef<HTMLInputElement>(null);
   const isRunning = timer.phase === "running";
   const verdictOpen = verdictDue && !isRunning;
@@ -674,6 +675,7 @@ function App() {
           </div>
 
           <TimerFace
+            readoutHost={readoutHost}
             timer={timer}
             totalSeconds={totalSeconds}
             send={send}
@@ -685,22 +687,7 @@ function App() {
             </p>
           )}
           <div className="timer-controls">
-            {isRunning ? (
-              <HoldToQuit
-                key={timerRevision}
-                getPrompt={() => {
-                  const progress = 1 - remaining(timer, Date.now()) / timer.plannedMs;
-                  return mode !== "focus"
-                    ? "Ready to leave this break?"
-                    : progress >= 0.8
-                      ? "You’re in the last stretch. Give the finish line a chance."
-                      : progress < 0.1
-                        ? "Give yourself a minute to settle in."
-                        : "The relief lasts a moment. Give it one more breath.";
-                }}
-                onQuit={() => void send({ type: "quit" })}
-              />
-            ) : (
+            {!isRunning && (
               <button
                 className="round-control"
                 onClick={resetTimer}
@@ -723,29 +710,42 @@ function App() {
                         ? "Start focus"
                         : "Start break"}
               </span>
-              <kbd>{isRunning ? "SPACE" : "↵"}</kbd>
+              {!isRunning && <kbd>↵</kbd>}
             </button>
-            <button
-              className="round-control"
-              onClick={skipSession}
-              disabled={isRunning}
-              aria-label="Skip session"
-              title={isRunning ? "Pause before switching sessions" : "Skip (N)"}
-            >
-              <Icon name="skip" className="h-[18px] w-[18px]" />
-            </button>
-          </div>
-          <div className="keyboard-hint">
-            <span className="keyboard-key">SPACE</span> {isRunning ? "to pause" : "to begin"}
-            <span className="hint-divider" />
-            {isRunning ? (
-              "Hold Quit for 1.8s"
-            ) : (
-              <>
-                <span className="keyboard-key">R</span> to reset
-              </>
+            {isRunning && (
+              <HoldToQuit
+                readoutHost={readoutHost}
+                key={timerRevision}
+                getPrompt={() => {
+                  const progress = 1 - remaining(timer, Date.now()) / timer.plannedMs;
+                  return mode !== "focus"
+                    ? "Ready to leave this break?"
+                    : progress >= 0.8
+                      ? "You’re in the last stretch. Give the finish line a chance."
+                      : progress < 0.1
+                        ? "Give yourself a minute to settle in."
+                        : "The relief lasts a moment. Give it one more breath.";
+                }}
+                onQuit={() => void send({ type: "quit" })}
+              />
+            )}
+            {!isRunning && (
+              <button
+                className="round-control"
+                onClick={skipSession}
+                aria-label="Skip session"
+                title="Skip (N)"
+              >
+                <Icon name="skip" className="h-[18px] w-[18px]" />
+              </button>
             )}
           </div>
+          {!isRunning && (
+            <div className="keyboard-hint">
+              <span className="keyboard-key">SPACE</span> to begin <span className="hint-divider" />
+              <span className="keyboard-key">R</span> to reset
+            </div>
+          )}
 
           {notice && (
             <div className={`completion-note completion-${notice.kind}`} role="status">

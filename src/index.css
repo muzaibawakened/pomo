@@ -335,8 +335,6 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 .native-dialog > p { margin: 12px 0 18px; }
 .analytics-dialog { width: 100%; max-width: none; height: 100dvh; max-height: none; padding: 0; border: 0; background: var(--paper); color: var(--ink); overflow-y: auto; }
 .timer-controls { position: relative; }
-.quit-control { touch-action: none; user-select: none; -webkit-touch-callout: none; font-size: 10px; font-weight: 700; line-height: 1.1; }
-.hold-feedback { position: absolute; z-index: 2; top: calc(100% + 5px); left: 0; right: 0; border-radius: 9px; padding: 5px; background: var(--paper); font-size: 11px; text-align: center; pointer-events: none; }
 .storage-warning { position: relative; z-index: 3; padding: 8px 12px; font-size: .85rem; background: #fff2c8; }
 .storage-warning button { font-weight: 700; text-decoration: underline; }
 .profile-pill { min-width: 0; }
@@ -375,10 +373,6 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 @keyframes dial-enter { from { opacity: .2; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 .timer-controls { margin-top: 0; }
 .keyboard-hint { color: #626557; min-height: 17px; }
-.quit-control { position: relative; overflow: hidden; isolation: isolate; min-width: 48px; min-height: 48px; color: #424638; background: #f1efe4; border-color: #b8bba9; }
-.quit-control::before { content: ""; position: absolute; z-index: -1; inset: 0; background: #ced8ad; transform-origin: bottom; transform: scaleY(0); }
-.quit-control[aria-pressed=true]::before { transform: scaleY(1); transition: transform 1.8s linear; }
-.hold-feedback { color: #36392e; font-size: 12px; background: #f5f2e9; padding: 6px; }
 .focus-mode .stats-column, .focus-mode .tasks-column { opacity: .72; }
 .task-focus-card { padding-bottom: 19px; background: #d9d1ea; }
 .task-row-actions, .active-task-title svg { opacity: 1; }
@@ -419,7 +413,6 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   .round-control { width: 48px; height: 48px; }
   .keyboard-hint { display: none; }
   .timer-column { padding-bottom: 20px; }
-  .hold-feedback { top: calc(100% + 1px); line-height: 1.25; }
   .tasks-column { grid-row: 2; }
   .stats-column { grid-row: 3; }
   .task-focus-card { border-radius: 15px; padding: 14px 16px; }
@@ -504,14 +497,12 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 .rhythm-toggle { display: none; }
 .focus-mode .active-task-title:disabled { opacity: 1; }
 .focus-mode .task-row-title:disabled { opacity: .85; }
-.timer-column:has(.quit-control[aria-pressed=true]) .keyboard-hint { visibility: hidden; }
 .edit-profile-setting { display:flex; width:100%; align-items:center; justify-content:space-between; min-height:44px; margin-top:16px; padding:0 12px; background:#eae8de; border-radius:12px; font-size:13px; }
 @media(max-width:600px) {
   .rhythm-toggle { display:flex; width:100%; justify-content:space-between; align-items:center; min-height:48px; border-top:1px solid var(--line); font-size:15px; font-weight:650; }
   .rhythm-toggle span { display:flex; gap:12px; align-items:center; font-size:12px; font-weight:500; color:#535846; }
   .rhythm-toggle b { font-size:18px; }
   .stats-column[data-expanded=false] #daily-rhythm, #daily-rhythm > .section-eyebrow { display:none; }
-  .quit-control { font-size:11px; }
 }
 /* Two nested transforms let the daylight settle without restarting its drift. */
 .studio-light { position: absolute; inset: 0; z-index: -3; overflow: hidden; pointer-events: none; }
@@ -555,8 +546,8 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   .focus-mode .timer-column { transform: translateY(clamp(-18px,calc(15svh - 105px),64px)); }
   .session-task { display: block; visibility: hidden; max-width: 88%; max-height: 0; margin: 0; opacity: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     color: #4c5144; font-size: 14px; line-height: 24px; transition: opacity .52s, max-height .52s, margin .52s; }
-  .focus-mode .session-task { visibility: visible; max-height: 24px; margin: 0 0 14px; opacity: 1; }
-  .focus-mode .round-control[aria-label="Skip session"], .focus-mode .keyboard-hint { visibility: hidden; }
+  .focus-mode .session-task { visibility: visible; max-height: 24px; margin: 0; opacity: 1; }
+
 }
 @media (min-width:921px) and (max-width:1024px) and (orientation:portrait) {
   .dashboard-grid { grid-template-columns: repeat(2,minmax(0,1fr)); align-items:start; min-height:0; }
@@ -576,7 +567,41 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   .stats-column { grid-column:1; grid-row:2; }
   .tasks-column { grid-column:2; grid-row:2; }
   .ring-stage { width:clamp(150px,calc(100svh - 210px),380px); margin:3px 0; }
-  .focus-mode .session-task { margin-bottom:4px; }
+
   .focus-mode .timer-column { transform: translateY(-38px); }
   .focus-mode .profile-pill { visibility: hidden; }
+}
+/* The running controls form one centered pair. The hold target stays still while the dial gives feedback. */
+.timer-column { --control-space: clamp(20px, 3.6svh, 36px); }
+.timer-controls { margin-top: clamp(6px, 1svh, 12px); }
+.focus-mode .timer-controls {
+  display: grid; grid-template-columns: minmax(0,1.25fr) minmax(0,1fr);
+  width: min(100%, 332px); gap: clamp(12px, 2vw, 18px); margin-top: var(--control-space);
+}
+.focus-mode .primary-control { min-width: 0; min-height: 52px; padding-inline: 12px; font-size: 13px; }
+.focus-mode .primary-control kbd { display: none; }
+.quit-control {
+  display: inline-flex; justify-content: center; align-items: center; gap: 8px;
+  min-height: 48px; padding: 0 12px; border-radius: 999px; border: 1px solid #b5b8a8;
+  background: #f6f5ec; color: #464b3d; font-size: 13px; font-weight: 650;
+  touch-action: none; user-select: none; -webkit-touch-callout: none;
+}
+.quit-control[aria-pressed=true] { background: #e6ead9; border-color: #818b6b; }
+@media (hover:hover) { .quit-control:hover { border-color:#808771; } }
+.dial-readout-host { position:absolute; inset: 11%; z-index: 3; pointer-events: none; }
+.timer-orb:has(.quit-readout) .timer-content { visibility:hidden; }
+.quit-readout { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+.quit-instruction { font-size:clamp(12px,3.6cqw,16px); color:#454a3d; font-weight:650; }
+.quit-remaining { font: 650 clamp(30px,18cqw,85px)/1.15 "Manrope",sans-serif; font-variant-numeric:tabular-nums; letter-spacing:-.07em; }
+.quit-remaining small { margin-left:.08em; font-size:.45em; letter-spacing:0; }
+.quit-track { width:64%; height:6px; margin: 2cqw 0 3cqw; overflow:hidden; border-radius:999px; background:#dce0d1; }
+.quit-track span { display:block; height:100%; background:#5c7043; border-radius:inherit; transform-origin:left; }
+.quit-readout p { margin:0; max-width:24ch; color:#545b49; font-size:clamp(11px,3.4cqw,15px); line-height:1.35; text-wrap:balance; }
+@media(max-width:600px) {
+  .focus-mode .timer-column { transform:translateY(clamp(-34px,calc(15svh - 123px),46px)); }
+  .focus-mode .timer-controls { width:min(100%,310px); }
+}
+@media(max-width:1024px) and (max-height:600px) and (orientation:landscape) {
+  .timer-column { --control-space:14px; }
+  .focus-mode .timer-column { transform:translateY(-38px); }
 }
