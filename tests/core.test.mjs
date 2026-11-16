@@ -385,3 +385,13 @@ test("retry saves in-memory work when space returns and protects concurrent chan
     }
   }
 });
+test("a weekly verdict stays available after reopening a running session", () => {
+  const s = running();
+  const week = "2025-01-13";
+  assert.equal(claimVerdict(s, week), s);
+  const restored = decode(JSON.parse(JSON.stringify(s)), start);
+  const paused = act(restored, { type: "pause" }, start + 1000);
+  const claimed = claimVerdict(paused, week);
+  assert.equal(claimed.verdictWeek, week);
+  assert.equal(claimVerdict(claimed, week), claimed);
+});

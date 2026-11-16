@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { dayKey } from "./calendar.ts";
 import type { SessionRecord } from "./model.ts";
 import { store } from "./store.ts";
-import { remaining, type TimerAction } from "./timer.ts";
+import { type TimerAction } from "./timer.ts";
 
 export function usePomo(onRecord: (record: SessionRecord) => void) {
   const { data, warning } = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { timer, timerRevision } = data;
+  const { timerRevision } = data;
   const [today, setToday] = useState(() => dayKey(Date.now()));
   const [verdictOpen, setVerdictOpen] = useState(false);
   const send = useCallback(
@@ -17,38 +17,6 @@ export function usePomo(onRecord: (record: SessionRecord) => void) {
     [timerRevision, onRecord],
   );
 
-  const readSeconds = useCallback(() => {
-    if (timer.phase === "running" || timer.phase === "paused")
-      return Math.ceil(remaining(timer, Date.now()) / 1000);
-    return timer.phase === "completed" ? 0 : data.settings.durations[timer.mode] * 60;
-  }, [timer, data.settings.durations]);
-  const subscribeClock = useCallback(
-    (changed: () => void) => {
-      if (timer.phase !== "running") return () => {};
-      let timeout: number;
-      let finalizing = false;
-      const tick = () => {
-        window.clearTimeout(timeout);
-        const left = remaining(timer, Date.now());
-        changed(); // useSyncExternalStore only renders on a different displayed second.
-        if (left > 0) timeout = window.setTimeout(tick, left % 1000 || 1000);
-        else if (!finalizing) {
-          finalizing = true;
-          void send({ type: "expire" });
-        }
-      };
-      tick();
-      document.addEventListener("visibilitychange", tick);
-      window.addEventListener("pageshow", tick);
-      return () => {
-        window.clearTimeout(timeout);
-        document.removeEventListener("visibilitychange", tick);
-        window.removeEventListener("pageshow", tick);
-      };
-    },
-    [timer, send],
-  );
-  const secondsLeft = useSyncExternalStore(subscribeClock, readSeconds);
   useEffect(() => {
     let timeout: number;
     const reconcile = () => {
@@ -73,16 +41,16 @@ export function usePomo(onRecord: (record: SessionRecord) => void) {
       window.removeEventListener("storage", reconcile);
     };
   }, []);
+  const running = data.timer.phase === "running";
   useEffect(() => {
     void store.visit().then(({ showVerdict }) => {
       if (showVerdict) setVerdictOpen(true);
     });
-  }, [today, data.profile?.name]);
+  }, [today, data.profile?.name, running]);
   return {
     data,
     warning,
     today,
-    secondsLeft,
     send,
     verdictOpen,
     dismissVerdict: () => setVerdictOpen(false),

@@ -1,3 +1,6 @@
+import { LocalClock } from "./LocalClock";
+import { TimerFace } from "./TimerFace";
+import { remaining } from "./timer";
 import {
   useCallback,
   useEffect,
@@ -219,14 +222,14 @@ function App() {
       }
     }
   }, []);
-  const { data, warning, today, secondsLeft, send, verdictOpen, dismissVerdict } =
-    usePomo(onRecord);
+  const { data, warning, today, send, verdictOpen: verdictDue, dismissVerdict } = usePomo(onRecord);
   const { settings, tasks, activeTaskId, timer, timerRevision } = data;
   // Keep Pause and Quit reachable if a recovered running timer has a damaged profile.
   const profile = data.profile ?? (timer.phase === "running" ? { name: "friend" } : null);
   const [onboardingName, setOnboardingName] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
+  const [statsExpanded, setStatsExpanded] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(profile?.name ?? "");
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -234,6 +237,7 @@ function App() {
   const [taskDraft, setTaskDraft] = useState("");
   const onboardingInputRef = useRef<HTMLInputElement>(null);
   const isRunning = timer.phase === "running";
+  const verdictOpen = verdictDue && !isRunning;
   const mode = timer.mode;
   const totalSeconds =
     timer.phase === "running" || timer.phase === "paused"
@@ -243,11 +247,6 @@ function App() {
     () => summary({ history: data.history, legacy: data.legacy }, today, today),
     [data.history, data.legacy, today],
   );
-  const progress = Math.min(1, Math.max(0, 1 - secondsLeft / totalSeconds));
-  const minutes = Math.floor(secondsLeft / 60)
-    .toString()
-    .padStart(2, "0");
-  const seconds = (secondsLeft % 60).toString().padStart(2, "0");
   const activeTask = useMemo(
     () =>
       tasks.find((task) => task.id === activeTaskId && !task.done) ??
@@ -260,29 +259,6 @@ function App() {
     [activeTask?.id, tasks],
   );
   const cycleProgress = stats.finished === 0 ? 0 : ((stats.finished - 1) % 4) + 1;
-  const sessionStatus =
-    secondsLeft === 0
-      ? "Session complete"
-      : timer.phase === "paused"
-        ? "Session paused"
-        : !isRunning
-          ? "Ready when you are"
-          : MODES[mode].eyebrow;
-  const message =
-    secondsLeft === 0
-      ? mode === "focus"
-        ? `Beautiful work, ${profile?.name ?? "friend"}. Let your mind breathe.`
-        : `Rest well spent, ${profile?.name ?? "friend"}. Ready for one more?`
-      : mode !== "focus"
-        ? `Rest is part of the work, ${profile?.name ?? "friend"}. No guilt.`
-        : isRunning && progress > 0.65
-          ? `Nearly there, ${profile?.name ?? "friend"}. Stay with it.`
-          : isRunning
-            ? `You're in it now, ${profile?.name ?? "friend"}. One thing at a time.`
-            : activeTask
-              ? `Ready when you are, ${profile?.name ?? "friend"}. Give this your attention.`
-              : `A little focus goes a long way, ${profile?.name ?? "friend"}.`;
-
   const edit = (update: (state: State) => State) => store.edit(timerRevision, update);
   const unlocked = () => {
     const current = store.getSnapshot().data;
@@ -305,13 +281,6 @@ function App() {
   useEffect(() => {
     if (!profile) onboardingInputRef.current?.focus();
   }, [profile]);
-  useEffect(() => {
-    document.title =
-      timer.phase === "completed"
-        ? `${mode === "focus" ? "Focus" : "Break"} complete · pomo.`
-        : `${minutes}:${seconds} · pomo.`;
-  }, [minutes, seconds, timer.phase, mode]);
-
   const changeMode = (mode: Mode) => {
     if (unlocked()) {
       setNotice(null);
@@ -560,35 +529,20 @@ function App() {
             </p>
           </form>
         </section>
-        <footer className="welcome-footer">
-          <span>TAKE YOUR TIME.</span>
-          <span>YOU'RE RIGHT ON TIME.</span>
-        </footer>
       </main>
     );
   }
 
-  const atmosphere =
-    mode === "focus"
-      ? { canvas: "focus-canvas", halo: "focus-halo", accent: "focus-accent" }
-      : mode === "short"
-        ? { canvas: "short-canvas", halo: "short-halo", accent: "short-accent" }
-        : { canvas: "long-canvas", halo: "long-halo", accent: "long-accent" };
-
   return (
-    <main className={`app-shell ${atmosphere.canvas} ${isRunning ? "focus-mode" : ""}`}>
+    <main className={`app-shell ${mode}-canvas ${isRunning ? "focus-mode" : ""}`}>
       <div className="paper-grid" aria-hidden="true" />
-      <div className="noise" aria-hidden="true" />
-      <div className={`ambient-blob ambient-main ${atmosphere.halo}`} aria-hidden="true" />
-      <div className={`ambient-blob ambient-side ${atmosphere.accent}`} aria-hidden="true" />
-      <div className="ambient-ring ring-one" aria-hidden="true" />
-      <div className="ambient-ring ring-two" aria-hidden="true" />
 
       {storageMessage}
       <header className="app-header">
         <a href="#home" className="wordmark app-wordmark" aria-label="pomo home">
           pomo<span>.</span>
         </a>
+        <LocalClock />
         <div className="header-actions">
           <button
             className="profile-pill"
@@ -617,7 +571,10 @@ function App() {
             className="icon-button settings-trigger"
             disabled={isRunning}
             onClick={() => {
-              if (unlocked()) setIsSettingsOpen(true);
+              if (unlocked()) {
+                setNameDraft(profile.name);
+                setIsSettingsOpen(true);
+              }
             }}
             aria-label="Open settings"
             title={isRunning ? "Pause to open settings" : "Settings"}
@@ -628,68 +585,72 @@ function App() {
       </header>
 
       <section className="dashboard-grid" id="home">
-        <aside className="stats-column">
-          <div className="section-eyebrow">
-            <span className="eyebrow-line" /> YOUR RHYTHM
-          </div>
-          <section className="stats-card glass-card">
-            <div className="stats-card-top">
-              <div>
-                <p className="stats-number">
-                  {stats.finished}
-                  <span> sessions</span>
-                </p>
-                <p className="muted-label">completed today</p>
-              </div>
-              <span className={`status-chip ${stats.finished > 0 ? "status-chip-active" : ""}`}>
-                <span className="chip-dot" />
-                {stats.finished > 0 ? "IN MOTION" : "FRESH START"}
-              </span>
-            </div>
-            <div
-              className="session-pips"
-              aria-label={`${cycleProgress} of 4 sessions in the current cycle`}
-            >
-              {[0, 1, 2, 3].map((item) => (
-                <span
-                  key={item}
-                  className={`session-pip ${item < cycleProgress ? "session-pip-done" : ""}`}
-                >
-                  {item < cycleProgress ? (
-                    <Icon name="check" className="h-4 w-4" />
-                  ) : (
-                    <span className="pip-number">0{item + 1}</span>
-                  )}
-                </span>
-              ))}
-            </div>
-            <div className="stats-card-foot">
-              <span>Focus cycle</span>
-              <span>{cycleProgress}/4</span>
-            </div>
-          </section>
-          <div className="focus-minutes-note">
-            <span className="minutes-icon">
-              <Icon name="spark" className="h-4 w-4" />
+        <aside className="stats-column" data-expanded={statsExpanded}>
+          <button
+            className="rhythm-toggle"
+            aria-expanded={statsExpanded}
+            aria-controls="daily-rhythm"
+            onClick={() => setStatsExpanded(!statsExpanded)}
+          >
+            Today’s rhythm{" "}
+            <span>
+              {stats.finished} finished <b aria-hidden="true">{statsExpanded ? "−" : "+"}</b>
             </span>
-            <p>
-              <strong>{Math.floor(stats.activeMs / 60_000)} min</strong> of intentional focus today.
-              <br />
-              <span>Small things, done with care.</span>
-            </p>
-          </div>
-          <div className="daily-note">
-            <span className="daily-note-mark">“</span>
-            <p>
-              The goal isn't to do everything.
-              <br />
-              It's to be here for one thing.
-            </p>
+          </button>
+          <div id="daily-rhythm">
+            <div className="section-eyebrow">
+              <span className="eyebrow-line" /> YOUR RHYTHM
+            </div>
+            <section className="stats-card glass-card">
+              <div className="stats-card-top">
+                <div>
+                  <p className="stats-number">
+                    {stats.finished}
+                    <span>{stats.finished === 1 ? " session" : " sessions"}</span>
+                  </p>
+                  <p className="muted-label">completed today</p>
+                </div>
+                <span className={`status-chip ${stats.finished > 0 ? "status-chip-active" : ""}`}>
+                  <span className="chip-dot" />
+                  {stats.finished > 0 ? "IN MOTION" : "FRESH START"}
+                </span>
+              </div>
+              <div
+                className="session-pips"
+                aria-label={`${cycleProgress} of 4 sessions in the current cycle`}
+              >
+                {[0, 1, 2, 3].map((item) => (
+                  <span
+                    key={item}
+                    className={`session-pip ${item < cycleProgress ? "session-pip-done" : ""}`}
+                  >
+                    {item < cycleProgress ? (
+                      <Icon name="check" className="h-4 w-4" />
+                    ) : (
+                      <span className="pip-number">0{item + 1}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+              <div className="stats-card-foot">
+                <span>Focus cycle</span>
+                <span>{cycleProgress}/4</span>
+              </div>
+            </section>
+            <div className="focus-minutes-note">
+              <span className="minutes-icon">
+                <Icon name="spark" className="h-4 w-4" />
+              </span>
+              <p>
+                <strong>{Math.floor(stats.activeMs / 60_000)} min</strong> of intentional focus
+                today.
+              </p>
+            </div>
           </div>
         </aside>
 
         <section className="timer-column" aria-label="Pomodoro timer">
-          <div className="mode-switch" role="tablist" aria-label="Timer mode">
+          <div className="mode-switch" data-mode={mode} role="tablist" aria-label="Timer mode">
             {(Object.keys(MODES) as Mode[]).map((item) => (
               <button
                 key={item}
@@ -709,74 +670,26 @@ function App() {
             ))}
           </div>
 
-          <div className={`timer-orb timer-orb-${mode} ${isRunning ? "timer-orb-running" : ""}`}>
-            <div className="orb-hairline" aria-hidden="true" />
-            <svg className="timer-ring" viewBox="0 0 300 300" aria-hidden="true">
-              <circle
-                className="timer-ring-track"
-                cx="150"
-                cy="150"
-                r="135"
-                fill="none"
-                strokeWidth="3.5"
-              />
-              <circle
-                className="timer-ring-progress"
-                cx="150"
-                cy="150"
-                r="135"
-                fill="none"
-                strokeWidth="3.5"
-                strokeLinecap="round"
-                strokeDasharray={2 * Math.PI * 135}
-                strokeDashoffset={2 * Math.PI * 135 * (1 - progress)}
-              />
-            </svg>
-            <div className="timer-content">
-              <div className="session-state">
-                <span
-                  className={`state-glyph state-glyph-${mode} ${
-                    isRunning ? "state-glyph-live" : ""
-                  }`}
-                >
-                  <span />
-                </span>
-                <span className="state-copy">
-                  <span className="state-overline">SESSION STATE</span>
-                  <strong>{sessionStatus}</strong>
-                </span>
-              </div>
-              <div
-                className="timer-digits"
-                aria-live="off"
-                aria-label={`${minutes} minutes and ${seconds} seconds remaining`}
-              >
-                <span className="timer-minutes">{minutes}</span>
-                <span className="timer-seconds-wrap">
-                  <span className="timer-seconds">{seconds}</span>
-                  <span className="seconds-label">SEC</span>
-                </span>
-              </div>
-              <div className="timer-message">
-                <span className="message-rule" />
-                {message}
-              </div>
-            </div>
-          </div>
-
+          <TimerFace
+            timer={timer}
+            totalSeconds={totalSeconds}
+            send={send}
+            label={MODES[mode].label}
+          />
           <div className="timer-controls">
             {isRunning ? (
               <HoldToQuit
                 key={timerRevision}
-                prompt={
-                  mode !== "focus"
+                getPrompt={() => {
+                  const progress = 1 - remaining(timer, Date.now()) / timer.plannedMs;
+                  return mode !== "focus"
                     ? "Ready to leave this break?"
                     : progress >= 0.8
                       ? "You’re in the last stretch. Give the finish line a chance."
                       : progress < 0.1
                         ? "Give yourself a minute to settle in."
-                        : "The relief lasts a moment. Give it one more breath."
-                }
+                        : "The relief lasts a moment. Give it one more breath.";
+                }}
                 onQuit={() => void send({ type: "quit" })}
               />
             ) : (
@@ -796,7 +709,7 @@ function App() {
                   ? "Pause session"
                   : timer.phase === "paused"
                     ? "Resume session"
-                    : secondsLeft === 0
+                    : timer.phase === "completed"
                       ? "Start again"
                       : mode === "focus"
                         ? "Start focus"
@@ -844,7 +757,7 @@ function App() {
               </button>
             </div>
           )}
-          {secondsLeft === 0 && (
+          {timer.phase === "completed" && (
             <button className="next-session-button" onClick={skipSession}>
               {mode === "focus" ? "Take a break" : "Back to focus"}
               <Icon name="arrow" className="h-4 w-4" />
@@ -907,34 +820,22 @@ function App() {
                     <Icon name="pencil" className="h-4 w-4" />
                   </button>
                 )}
-                <p className="active-task-subtitle">One task. One tab. One step at a time.</p>
               </>
             ) : (
               <div className="empty-focus">
                 <span className="empty-focus-icon">
                   <Icon name="spark" className="h-5 w-5" />
                 </span>
-                <strong>Make space for one thing.</strong>
-                <p>Add a task below and give it your full attention.</p>
+                <strong>Choose a focus task</strong>
+                <p>Add your first task below.</p>
               </div>
             )}
-            <div className="task-card-footer">
-              <span>
-                <span className="task-count-dot" />
-                {tasks.filter((task) => !task.done).length} open{" "}
-                {tasks.filter((task) => !task.done).length === 1 ? "task" : "tasks"}
-              </span>
-              <span className="task-footer-note">
-                {activeTask ? "IN YOUR CORNER" : "READY WHEN YOU ARE"}
-              </span>
-            </div>
           </section>
 
           <section className="task-list-card glass-card">
             <div className="task-list-heading">
               <div>
                 <p className="task-list-title">Your list</p>
-                <p className="task-list-caption">Keep it light. Keep it moving.</p>
               </div>
               <span className="task-total-badge">{tasks.length}</span>
             </div>
@@ -1063,15 +964,7 @@ function App() {
             )}
           </section>
         </aside>
-        <div className="focus-vignette" aria-hidden="true" />
       </section>
-
-      <footer className="app-footer">
-        <span>
-          <span className="footer-dot" /> MADE FOR THE NEXT 25 MINUTES
-        </span>
-        <span>One thing at a time, {profile.name}.</span>
-      </footer>
 
       {analyticsOpen && (
         <AnalyticsView data={data} today={today} onClose={() => setAnalyticsOpen(false)} />
@@ -1091,13 +984,8 @@ function App() {
             <div>
               <span className="settings-kicker">YOUR SPACE</span>
               <h2 id="settings-title">
-                {isEditingName && !isSettingsOpen ? "Let’s make it yours." : "A few preferences."}
+                {isEditingName && !isSettingsOpen ? "Edit your name" : "Settings"}
               </h2>
-              <p>
-                {isEditingName && !isSettingsOpen
-                  ? "A little personal touch, then back to your space."
-                  : "Make your focus ritual feel like yours."}
-              </p>
             </div>
             <button
               className="icon-button modal-close"
@@ -1110,6 +998,11 @@ function App() {
               <Icon name="close" className="h-5 w-5" />
             </button>
           </div>
+          {isSettingsOpen && !isEditingName && (
+            <button className="edit-profile-setting" onClick={() => setIsEditingName(true)}>
+              Edit profile name <strong>{profile.name}</strong>
+            </button>
+          )}
           {isEditingName && (
             <form className="name-settings-row" onSubmit={saveName}>
               <div>

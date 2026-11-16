@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createHold, HOLD_MS, holdKey } from "./hold.ts";
 
-export function HoldToQuit({ onQuit, prompt }: { onQuit: () => void; prompt: string }) {
+export function HoldToQuit({ onQuit, getPrompt }: { onQuit: () => void; getPrompt: () => string }) {
   const [progress, setProgress] = useState<number | null>(null);
   const [status, setStatus] = useState("");
   const machine = useRef(createHold());
@@ -53,7 +53,7 @@ export function HoldToQuit({ onQuit, prompt }: { onQuit: () => void; prompt: str
       stop();
       onQuit();
     } else if (state === "holding") {
-      setProgress(machine.current.progress(now));
+      setProgress(Math.floor(machine.current.progress(now) * 18) / 18);
       frame.current = requestAnimationFrame(sample);
     } else cancel();
   }
@@ -62,7 +62,7 @@ export function HoldToQuit({ onQuit, prompt }: { onQuit: () => void; prompt: str
       return;
     input.current = owner;
     setProgress(0);
-    setStatus(prompt);
+    setStatus(getPrompt());
     frame.current = requestAnimationFrame(sample);
   }
   function release() {

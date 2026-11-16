@@ -43,7 +43,9 @@ export function verdict(data: Data, today: string) {
 }
 export function claimVerdict(state: State, today: string): State {
   const week = monday(today);
-  return state.profile && week > state.verdictWeek ? { ...state, verdictWeek: week } : state;
+  return state.profile && state.timer.phase !== "running" && week > state.verdictWeek
+    ? { ...state, verdictWeek: week }
+    : state;
 }
 
 const lines = {
