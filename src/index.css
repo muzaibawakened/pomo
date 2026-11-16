@@ -506,14 +506,23 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 }
 /* Two nested transforms let the daylight settle without restarting its drift. */
 .studio-light { position: absolute; inset: 0; z-index: -3; overflow: hidden; pointer-events: none; }
-.studio-light > div { position: absolute; inset: -12vw -22vw auto; height: calc(100svh + 24vw); transition: transform .65s var(--ease); }
+.studio-light { --wash: #d9daac; --fold: #a9af84; --haze: #cab8d6; background: radial-gradient(ellipse at 52% 38%, #fffcf3 0%, transparent 62%); }
+.short-canvas .studio-light { --wash: #e4cbdc; --fold: #baa1bc; --haze: #b5bddf; }
+.long-canvas .studio-light { --wash: #bfdacf; --fold: #91b5a9; --haze: #c5cdaa; }
+.studio-light > div { position: absolute; inset: -4svh -5vw auto; height: 112svh; transition: opacity .8s var(--ease); }
 .studio-light > div::before { content: ""; position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 23% 45%, #e2dfbfc9, transparent 38%),
-    linear-gradient(123deg, transparent 27%, #fff9e5b0 39%, #fff9e55c 48%, transparent 63%),
-    radial-gradient(ellipse at 82% 72%, #d9cfe58c, transparent 36%);
-  animation: daylight-drift 18s ease-in-out infinite alternate; }
+  background:
+    radial-gradient(ellipse 88% 106% at -29% -47%, transparent 72%, #fffaf080 77%, transparent 78% 83%, #fffaf0aa 88%, transparent 88.4%, color-mix(in srgb, var(--fold) 46%, transparent) 89%, transparent 95%),
+    radial-gradient(ellipse 80% 100% at 122% 122%, transparent 58%, color-mix(in srgb, var(--haze) 52%, transparent) 67%, #fffaf0aa 68%, transparent 69% 73%, color-mix(in srgb, var(--haze) 66%, transparent) 79%, transparent 85%),
+    radial-gradient(ellipse at 6% 8%, var(--wash), transparent 49%),
+    radial-gradient(ellipse at 98% 77%, var(--haze), transparent 43%);
+  animation: daylight-drift 28s ease-in-out infinite alternate; }
+@media (max-width: 600px) {
+  .studio-light > div { height: 100svh; mask-image: linear-gradient(#000 83%, transparent); }
+  .studio-light { background: radial-gradient(ellipse at 8% 96%, color-mix(in srgb, var(--wash) 65%, transparent), transparent 45%); }
+}
 @keyframes daylight-drift { from { transform: translate3d(-2%, -1%, 0); } to { transform: translate3d(3%, 2%, 0); } }
-.focus-mode .studio-light > div { transform: translate3d(10%, -2%, 0); }
+.focus-mode .studio-light > div { opacity: .53; }
 .focus-mode .studio-light > div::before { animation-play-state: paused; }
 
 .focus-canvas { --ink-edge: #bbafd2; }
