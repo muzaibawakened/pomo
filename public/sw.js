@@ -1,4 +1,4 @@
-const CACHE_NAME = "pomo-shell-v3-4";
+const CACHE_NAME = "pomo-shell-sound-v1";
 const APP_SHELL = [
   "/",
   "/index.html",

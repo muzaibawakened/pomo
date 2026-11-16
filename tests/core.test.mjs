@@ -255,6 +255,7 @@ test("V2 migration preserves actual fields, never fabricates starts and runs onc
   const saved = a.getSnapshot().data;
   assert.equal(saved.settings.durations.focus, 30);
   assert.equal(saved.settings.sound, false);
+  assert.equal(saved.settings.interactionSounds, false);
   assert.equal(saved.activeTaskId, "t");
   assert.equal(saved.profile.name, "M");
   assert.equal(saved.timer.phase, "paused");
@@ -394,4 +395,20 @@ test("a weekly verdict stays available after reopening a running session", () =>
   const claimed = claimVerdict(paused, week);
   assert.equal(claimed.verdictWeek, week);
   assert.equal(claimVerdict(claimed, week), claimed);
+});
+
+test("existing snapshots keep their mute choice and explicit sound preferences round-trip", () => {
+  const old = fresh();
+  old.settings = {
+    sound: false,
+    notifications: false,
+    durations: { focus: 45, short: 10, long: 20 },
+  };
+  const loaded = decode(old, start);
+  assert.deepEqual(loaded.settings, { ...old.settings, interactionSounds: false, volume: 65 });
+  const separate = { ...loaded.settings, interactionSounds: true, volume: 0 };
+  assert.deepEqual(decode({ ...loaded, settings: separate }, start).settings, separate);
+  for (const volume of [-1, 0.5, 101, "70"]) {
+    assert.equal(decode({ settings: { volume } }, start).settings.volume, 65);
+  }
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 export function Dialog({
   titleId,
@@ -12,10 +12,15 @@ export function Dialog({
   full?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current!;
+    const trigger = document.activeElement;
     dialog.showModal();
-    return () => dialog.close();
+    return () => {
+      dialog.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected && !trigger.matches(":disabled"))
+        trigger.focus({ preventScroll: true });
+    };
   }, []);
   return (
     <dialog

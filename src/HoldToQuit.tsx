@@ -6,6 +6,7 @@ import {
   type RefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { beginHoldSound } from "./sound";
 import { createHold, HOLD_MS, holdKey } from "./hold.ts";
 
 export function HoldToQuit({
@@ -22,8 +23,11 @@ export function HoldToQuit({
   const machine = useRef(createHold());
   const input = useRef<number | string | null>(null);
   const frame = useRef(0);
+  const stopTone = useRef<(() => void) | undefined>(undefined);
   const button = useRef<HTMLButtonElement>(null);
   function stop() {
+    stopTone.current?.();
+    stopTone.current = undefined;
     cancelAnimationFrame(frame.current);
     const owner = input.current;
     input.current = null;
@@ -49,6 +53,8 @@ export function HoldToQuit({
       window.removeEventListener("pagehide", cancel);
       document.removeEventListener("visibilitychange", visibility);
       cancelAnimationFrame(frame.current);
+      stopTone.current?.();
+      stopTone.current = undefined;
       machine.current.cancel();
       input.current = null;
     };
@@ -76,6 +82,7 @@ export function HoldToQuit({
     if (input.current !== null || document.hidden || !machine.current.begin(performance.now()))
       return;
     input.current = owner;
+    stopTone.current = beginHoldSound();
     setProgress(0);
     setStatus(getPrompt());
     frame.current = requestAnimationFrame(sample);
@@ -92,6 +99,7 @@ export function HoldToQuit({
   return (
     <>
       <button
+        data-own-sound
         ref={button}
         type="button"
         className="quit-control"

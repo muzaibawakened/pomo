@@ -60,8 +60,9 @@ test("onboarding, locked controls, shortcuts, task edits, paused settings and An
   const paused = (await snapshot(page)).timer;
   await page.getByLabel("Open settings").click();
   await page.getByLabel("Focus duration in minutes").fill("40");
-  await page.getByRole("switch", { name: "Gentle completion sound" }).click();
+  await page.getByRole("switch", { name: "Completion chime" }).click();
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
   await page.reload();
   expect((await snapshot(page)).timer).toEqual(paused);
   expect((await snapshot(page)).settings.durations.focus).toBe(40);
@@ -259,12 +260,17 @@ test("live completion sends each enabled signal once across visibility events an
         }
       },
     });
+    const schedule = AudioParam.prototype.setValueAtTime;
+    AudioParam.prototype.setValueAtTime = function (value, time) {
+      if (Math.abs(value - 659.25) < 0.01) count("chimes");
+      return schedule.call(this, value, time);
+    };
     const Audio = window.AudioContext;
     Object.defineProperty(window, "AudioContext", {
       value: class extends Audio {
         constructor() {
           super();
-          count("chimes");
+          count("contexts");
         }
       },
     });
@@ -288,8 +294,9 @@ test("live completion sends each enabled signal once across visibility events an
     await page.evaluate(() => [
       sessionStorage.getItem("chimes"),
       sessionStorage.getItem("notifications"),
+      sessionStorage.getItem("contexts"),
     ]),
-  ).toEqual(["1", "1"]);
+  ).toEqual(["1", "1", "1"]);
 });
 
 test("first installed PWA reopens offline and recovers the paused timer", async ({
@@ -365,4 +372,244 @@ test("compact running view enlarges the dial, keeps the selected task and restor
   await expect(hold(page)).toBeVisible();
   await expect(page.locator(".session-task")).toBeHidden();
   await expect(page.locator(".mode-switch")).toBeHidden();
+});
+
+test("timer lengths support editing, presets and rapid steppers with reachable mobile controls", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByLabel("Open settings").click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const field = dialog.getByLabel("Focus duration in minutes");
+  const done = dialog.getByRole("button", { name: "Done" });
+  for (const [width, height] of [
+    [320, 568],
+    [390, 844],
+    [1280, 800],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect(done).toBeInViewport();
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const scroll = dialog.locator(".pref-scroll");
+    expect(await scroll.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const rect = await dialog.boundingBox();
+    if (width < 400) expect(Math.abs(rect!.y + rect!.height - height)).toBeLessThan(2);
+  }
+  await dialog.getByRole("button", { name: "Set Focus to 45 minutes" }).click();
+  const plus = dialog.getByRole("button", { name: "Increase Focus by one minute" });
+  await plus.dblclick();
+  await expect(field).toHaveValue("47");
+  await field.fill("");
+  await field.press("Tab");
+  await expect(field).toHaveValue("47");
+  await field.fill("7");
+  await field.press("Escape");
+  await expect(field).toHaveValue("47");
+  await expect(dialog).toBeVisible();
+  for (const invalid of ["0", "1.5", "181"]) {
+    await field.fill(invalid);
+    await field.press("Enter");
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(dialog.getByRole("alert")).toHaveText(/whole number/);
+    expect((await snapshot(page)).settings.durations.focus).toBe(47);
+  }
+  await field.fill("180");
+  await field.press("Enter");
+  await expect(plus).toBeDisabled();
+  await dialog.getByRole("button", { name: "Set Short break to 10 minutes" }).click();
+  await dialog.getByRole("button", { name: "Set Long break to 30 minutes" }).click();
+  await dialog.getByLabel("Your name").fill("M");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(done).toBeInViewport();
+  await done.click();
+  await expect(page.getByLabel("Open settings")).toBeFocused();
+  await page.reload();
+  const state = await snapshot(page);
+  expect(state.settings.durations).toEqual({ focus: 180, short: 10, long: 30 });
+  expect(state.profile?.name).toBe("M");
+});
+
+test("muted interactions, independent chime preview, and a cancelled hold reach the expected audio output", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pomo.settings.v1", JSON.stringify({ sound: false }));
+    // Meter the actual samples from the app's final output node.
+    const connect = AudioNode.prototype.connect;
+    const output = DynamicsCompressorNode.prototype;
+    let peak = 0;
+    const notes: number[] = [];
+    Object.defineProperty(window, "audioProbe", {
+      value: {
+        read: () => ({ peak, notes: [...notes] }),
+        reset: () => {
+          peak = 0;
+          notes.length = 0;
+        },
+      },
+    });
+    const set = AudioParam.prototype.setValueAtTime;
+    AudioParam.prototype.setValueAtTime = function (value, time) {
+      if (value > 20) notes.push(value);
+      return set.call(this, value, time);
+    };
+    Object.defineProperty(output, "connect", {
+      value: function (this: DynamicsCompressorNode, destination: AudioNode) {
+        if (destination !== this.context.destination)
+          return Reflect.apply(connect, this, [destination]);
+        const analyser = this.context.createAnalyser();
+        analyser.fftSize = 512;
+        Reflect.apply(connect, this, [analyser]);
+        Reflect.apply(connect, analyser, [destination]);
+        const buffer = new Float32Array(analyser.fftSize);
+        setInterval(() => {
+          analyser.getFloatTimeDomainData(buffer);
+          for (const sample of buffer) peak = Math.max(peak, Math.abs(sample));
+        }, 8);
+        return destination;
+      },
+    });
+  });
+  type Probe = { audioProbe: { read(): { peak: number; notes: number[] }; reset(): void } };
+  const read = () => page.evaluate(() => (window as unknown as Probe).audioProbe.read());
+  const reset = () => page.evaluate(() => (window as unknown as Probe).audioProbe.reset());
+  await open(page);
+  await page.getByLabel("Open settings").click();
+  const interactions = page.getByRole("switch", { name: "Interaction sounds" });
+  const chime = page.getByRole("switch", { name: "Completion chime" });
+  await expect(interactions).not.toBeChecked();
+  await expect(chime).not.toBeChecked();
+  expect((await read()).notes).toEqual([]);
+  await page.getByRole("button", { name: "Preview chime" }).click();
+  await expect.poll(async () => (await read()).peak).toBeGreaterThan(0.02);
+  expect((await read()).notes).toEqual([659.25, 987.77]);
+  await expect(chime).not.toBeChecked();
+  await page.getByRole("slider", { name: "Volume" }).focus();
+  await page.keyboard.press("Home");
+  await expect.poll(async () => (await snapshot(page)).settings.volume).toBe(0);
+  await reset();
+  await page.getByRole("button", { name: "Preview chime" }).click();
+  expect((await read()).notes).toEqual([]);
+  await page.getByRole("slider", { name: "Volume" }).focus();
+  await page.keyboard.press("End");
+  await interactions.click();
+  await expect(interactions).toBeChecked();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.reload();
+  expect((await snapshot(page)).settings).toMatchObject({
+    volume: 100,
+    interactionSounds: true,
+    sound: false,
+  });
+  await start(page);
+  await expect.poll(async () => (await read()).notes).toEqual([392, 587.33]);
+  const pause = page.getByRole("button", { name: "Pause session" });
+  await pause.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Resume session" })).toBeVisible();
+  expect((await read()).notes.slice(2)).toEqual([440, 329.63]);
+  await page.getByRole("button", { name: "Resume session" }).click();
+  await expect(hold(page)).toBeVisible();
+  await reset();
+  await pressPointer(page);
+  await expect.poll(async () => (await read()).notes).toEqual([220]);
+  await page.mouse.up();
+  await expect(hold(page)).toHaveAttribute("aria-pressed", "false");
+  await page.waitForTimeout(350); // Allow the resume cue, hold release and output meter to settle.
+  await reset();
+  await page.waitForTimeout(170);
+  expect((await read()).peak).toBeLessThan(0.0005);
+  expect((await snapshot(page)).history).toHaveLength(0);
+});
+
+test("a late wake-up records the finish without playing an old alert", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pomo.settings.v1", JSON.stringify({ durations: { focus: 1 } }));
+    const set = AudioParam.prototype.setValueAtTime;
+    AudioParam.prototype.setValueAtTime = function (value, time) {
+      if (value === 659.25) sessionStorage.setItem("stale-chime", "played");
+      return set.call(this, value, time);
+    };
+  });
+  await page.clock.install();
+  await open(page);
+  await start(page);
+  await page.clock.fastForward(3_600_000);
+  await expect(page.getByRole("button", { name: "Start again" })).toBeVisible();
+  expect((await snapshot(page)).history.length).toBe(1);
+  expect(await page.evaluate(() => sessionStorage.getItem("stale-chime"))).toBeNull();
+});
+
+test("two armed tabs produce one break chime with interactions muted", async ({
+  context,
+  page,
+}) => {
+  await context.addInitScript(() => {
+    localStorage.setItem(
+      "pomo.settings.v1",
+      JSON.stringify({ sound: true, interactionSounds: false, durations: { short: 1 } }),
+    );
+    const set = AudioParam.prototype.setValueAtTime;
+    AudioParam.prototype.setValueAtTime = function (value, time) {
+      if (value > 20)
+        sessionStorage.setItem(
+          "played",
+          JSON.stringify([...JSON.parse(sessionStorage.getItem("played") || "[]"), value]),
+        );
+      return set.call(this, value, time);
+    };
+  });
+  const time = new Date("2026-06-10T12:00:00Z");
+  await page.clock.install({ time });
+  await open(page);
+  const second = await context.newPage();
+  await second.goto("/");
+  await second.getByLabel("Open settings").click();
+  await second.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("tab", { name: /Quick reset/ }).click();
+  await page.getByRole("button", { name: "Start break" }).click();
+  await expect(hold(second)).toBeVisible();
+  await page.clock.fastForward(61_000); // The context clock advances both tabs together.
+  await expect(second.getByRole("button", { name: "Start again" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start again" })).toBeVisible();
+  const notes = (p: Page) =>
+    p.evaluate((): number[] => JSON.parse(sessionStorage.getItem("played") || "[]"));
+  await expect
+    .poll(async () => [...(await notes(page)), ...(await notes(second))])
+    .toEqual([783.99, 587.33]);
+  expect((await snapshot(page)).history.map((r) => [r.mode, r.outcome])).toEqual([
+    ["short", "completed"],
+  ]);
+});
+
+test("task completion gets one cue and a muted timer finish stays quiet", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "pomo.settings.v1",
+      JSON.stringify({ sound: false, interactionSounds: true, durations: { focus: 1 } }),
+    );
+    const set = AudioParam.prototype.setValueAtTime;
+    AudioParam.prototype.setValueAtTime = function (value, time) {
+      if (value > 20)
+        sessionStorage.setItem(
+          "notes",
+          JSON.stringify([...JSON.parse(sessionStorage.getItem("notes") || "[]"), value]),
+        );
+      return set.call(this, value, time);
+    };
+  });
+  const notes = () =>
+    page.evaluate((): number[] => JSON.parse(sessionStorage.getItem("notes") || "[]"));
+  await page.clock.install();
+  await open(page);
+  await page.getByLabel("New task title").fill("Proofread");
+  await page.getByRole("button", { name: "Add task", exact: true }).click();
+  await page.evaluate(() => sessionStorage.removeItem("notes"));
+  await page.getByLabel("Complete Proofread").click();
+  await expect(page.getByLabel("Mark Proofread incomplete")).toBeVisible();
+  expect(await notes()).toEqual([784, 987.77]);
+  await start(page);
+  await page.clock.fastForward(61_000);
+  await expect(page.getByRole("button", { name: "Start again" })).toBeVisible();
+  expect(await notes()).toEqual([784, 987.77, 392, 587.33]);
 });

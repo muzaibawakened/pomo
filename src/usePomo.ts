@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { dayKey } from "./calendar.ts";
 import type { SessionRecord } from "./model.ts";
+import { unlockSound, playCue, playFinish } from "./sound";
 import { store } from "./store.ts";
 import { type TimerAction } from "./timer.ts";
 
@@ -11,8 +12,19 @@ export function usePomo(onRecord: (record: SessionRecord) => void) {
   const [verdictOpen, setVerdictOpen] = useState(false);
   const send = useCallback(
     async (action: TimerAction) => {
-      const { record } = await store.timer(timerRevision, action);
+      if (action.type !== "expire") unlockSound();
+      const { record, changed } = await store.timer(timerRevision, action);
       if (record) onRecord(record);
+      if (
+        !changed ||
+        action.type === "expire" ||
+        record?.outcome === "completed" ||
+        record?.outcome === "quit"
+      )
+        return;
+      if (action.type === "start" || action.type === "pause" || action.type === "resume")
+        playCue(action.type);
+      else playCue("tap");
     },
     [timerRevision, onRecord],
   );
@@ -20,7 +32,10 @@ export function usePomo(onRecord: (record: SessionRecord) => void) {
   useEffect(() => {
     let timeout: number;
     const reconcile = () => {
+      const previousCount = store.getSnapshot().data.history.length;
       store.sync();
+      const history = store.getSnapshot().data.history;
+      if (history.length > previousCount) playFinish(history[history.length - 1], false);
       const now = new Date();
       setToday(dayKey(now));
       const midnight = new Date(now);
